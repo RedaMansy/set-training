@@ -28,7 +28,8 @@ BODY_MEMORY = 0.5      # seconds to keep using your last known position if pose 
 COOLDOWN = 0.35        # seconds after a rep before another can count (no double counts)
 MIN_FALL = 0.4         # shoulder widths the ball must fall before contact. Stops a held,
                        #   wobbling ball (noisy detections) being counted as sets
-TARGET_RADIUS = 40     # pixels: a set whose peak lands within this of the target is consistent
+TARGET_HALF_HEIGHT = 0.2  # target zone round the first set's peak, in shoulder widths:
+TARGET_HALF_WIDTH = 0.4   #   how far above/below and left/right still counts as consistent
 FACE_HALF_WIDTH = 0.3  # face area ignored by the ball tracker (skin can look yellow
 FACE_HALF_HEIGHT = 0.4 #   under lamps): an ellipse round your nose, in shoulder widths
 # ---------------------------------------------------------------------------------
@@ -58,7 +59,8 @@ class RepCounter:
         self.highest_point = None
         self.last_set_height = None
         self.contact_point = None
-        self.target = None
+        self.target = None          # (dx, dy) of the first set's peak, relative to your
+                                    #   shoulders in shoulder widths (see body_offset)
 
     def update_body(self, now, xy, conf, posture_ok, kp_conf):
         if posture_ok:
@@ -75,6 +77,24 @@ class RepCounter:
         _, cx, sy, w = self.body
         return (cx - ZONE_HALF_WIDTH * w, sy - ZONE_HEIGHT * w, cx + ZONE_HALF_WIDTH * w, sy)
 
+    def body_offset(self, point):
+        """Where a (time, x, y) point is relative to your shoulders, in shoulder widths:
+        dx = sideways (+ = right on screen), dy = height above your shoulders.
+        Works at any distance from the camera."""
+        _, cx, sy, w = self.body
+        _, x, y = point
+        return float((x - cx) / w), float((sy - y) / w)
+
+    def target_zone(self, now):
+        """(x1, y1, x2, y2) pixel box round the target, placed from where you are NOW."""
+        if self.target is None or self.body is None or now - self.body[0] > BODY_MEMORY:
+            return None
+        _, cx, sy, w = self.body
+        dx, dy = self.target
+        x, y = cx + dx * w, sy - dy * w  # back from shoulder widths to pixels
+        return (x - TARGET_HALF_WIDTH * w, y - TARGET_HALF_HEIGHT * w,
+                x + TARGET_HALF_WIDTH * w, y + TARGET_HALF_HEIGHT * w)
+
     def update_ball(self, now, ball_xy, speed):
         """speed: px/s, positive = up (None if unknown). Returns True when a rep is counted."""
         if speed is None:
@@ -90,8 +110,8 @@ class RepCounter:
                     height = (self.contact_point[2] - self.highest_point[2]) / self.body[3]
                     self.last_set_height = height
                     if self.target is None:
-                        self.target = self.highest_point
-                        print("target set: ", self.target)   
+                        self.target = self.body_offset(self.highest_point)
+                        print("target set: ", self.target)
                     print(self.last_set_height)
                     self.highest_point = None
             return False
@@ -190,9 +210,10 @@ def main():
             recent_posture = now - counter.last_posture_ok <= POSTURE_WINDOW
             cv2.rectangle(frame, (int(zone[0]), int(zone[1])), (int(zone[2]), int(zone[3])),
                           (0, 200, 0) if recent_posture else (120, 120, 120), 1)
-        if counter.target is not None:
-            _, tx, ty = counter.target
-            cv2.circle(frame, (int(tx), int(ty)), TARGET_RADIUS, (255, 255, 255), 2)
+        target = counter.target_zone(now)
+        if target:
+            cv2.rectangle(frame, (int(target[0]), int(target[1])), (int(target[2]), int(target[3])),
+                          (255, 255, 255), 2)
         if ball:
             cv2.circle(frame, (int(ball[0]), int(ball[1])), int(ball[2]), (0, 255, 255), 2)
         trail.draw(frame)

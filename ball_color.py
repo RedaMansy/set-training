@@ -36,8 +36,9 @@ def load_settings():
     return dict(DEFAULTS)
 
 
-def find_ball_by_color(frame, s):
-    """Return ((x, y, radius) or None, mask). s holds the HSV range."""
+def find_ball_by_color(frame, s, ignore=()):
+    """Return ((x, y, radius) or None, mask). s holds the HSV range.
+    ignore: ellipses ((cx, cy), (half_w, half_h)) to black out of the mask, e.g. your face."""
     hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, (s["h_min"], s["s_min"], s["v_min"]),
                        (s["h_max"], s["s_max"], s["v_max"]))
@@ -45,6 +46,8 @@ def find_ball_by_color(frame, s):
     # ball's other-coloured panels or seams) so the ball is one solid blob.
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
+    for centre, axes in ignore:  # paint ignored areas black: "not ball"
+        cv2.ellipse(mask, centre, axes, 0, 0, 360, 0, -1)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = [c for c in contours if cv2.contourArea(c) >= MIN_AREA]
