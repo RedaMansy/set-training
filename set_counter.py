@@ -40,6 +40,9 @@ class RepCounter:
         self.last_rep = -1e9
         self.body = None            # (time, shoulder_mid_x, shoulder_y, shoulder_width)
         self.last_reason = ""
+        self.highest_point = None
+        self.last_set_height = None
+        self.contact_point = None
 
     def update_body(self, now, xy, conf, posture_ok, kp_conf):
         if posture_ok:
@@ -62,8 +65,15 @@ class RepCounter:
             return False
 
         if self.state == "WAITING":
+            if self.highest_point is not None and ball_xy is not None and ball_xy[1] < self.highest_point[2]:
+                self.highest_point = (now, *ball_xy)
             if speed < -MOVE_THRESHOLD:
                 self.state, self.lowest = "FALLING", (now, *ball_xy)
+                if self.highest_point is not None:
+                    height = (self.contact_point[2] - self.highest_point[2]) / self.body[3]
+                    self.last_set_height = height
+                    print(self.last_set_height)
+                    self.highest_point = None
             return False
 
         # FALLING: remember the lowest point (largest y), wait for it to turn up
@@ -88,6 +98,8 @@ class RepCounter:
             self.count += 1
             self.last_rep = now
             self.last_reason = "SET!"
+            self.contact_point = t, x, y
+            self.highest_point = self.contact_point
             return True
         return False
 
@@ -155,6 +167,9 @@ def main():
             cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 255, 0), 12)
         cv2.putText(frame, f"SETS: {counter.count}", (w - 230, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 255, 0), 3)
+        if counter.last_set_height is not None:
+            cv2.putText(frame, f"HEIGHT: {counter.last_set_height}", (w - 230, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
 
         fps = 1 / (now - prev)
         prev = now
